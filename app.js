@@ -21,7 +21,7 @@ app.use(bodyParser.json())
 app.use(cors())
 
 app.use(fileUpload({
-    useTempFiles : false,
+    useTempFiles : false
     // tempFileDir : '/tmp/'
 }));
 
