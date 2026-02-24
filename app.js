@@ -4,7 +4,6 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const fileUpload =require('express-fileupload');
 const cors = require('cors')
-
 const userRoute = require('./routes/user');
 const courseRoute = require('./routes/course');
 const studentRoute = require('./routes/student');
