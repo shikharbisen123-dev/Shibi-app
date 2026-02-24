@@ -1,271 +1,228 @@
-const express = require('express')
-const router = express.Router()
-const checkAuth = require('../middleware/checkAuth')
-const Course = require('../model/Course')
-const mongoose = require('mongoose')
-const jwt = require('jsonwebtoken')
-const cloudinary =require('cloudinary').v2;
-const Student = require('../model/Student');
-const Fee = require('../model/Fee')
+const express = require("express");
+const router = express.Router();
+const checkAuth = require("../middleware/checkAuth");
+const Course = require("../model/Course");
+const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
+const cloudinary = require("cloudinary").v2;
+const Student = require("../model/Student");
+const Fee = require("../model/Fee");
 
 cloudinary.config({
-    cloud_name:process.env.CLOUD_NAME,
-    api_key:process.env.API_KEY,
-    api_secret:process.env.API_SECRET
-})
-//add new course
-router.post('/add-course',checkAuth,(req,res)=>{
-    const token = req.headers.authorization.split(" ")[1]
-    const verify = jwt.verify(token,'shi online classes 123');
-    
-    cloudinary.uploader.upload(req.files.image.tempFilePath,(err,result)=>{
-        const newCourse = new Course({
-        _id:new mongoose.Types.ObjectId,
-        courseName:req.body.courseName,
-        price:req.body.price,
-        description:req.body.description,
-        startingDate:req.body.startingDate,
-        endDate:req.body.endDate,
-        uId:verify.uId,
-        imageUrl:result.secure_url,
-        imageId:result.public_id
-    })
-    newCourse.save()
-    .then(result=>{
-        res.status(200).json({
-            newCourse:result
-        })
-    })
-    .catch(err=>{
-        console.log(err)
-        res.status(500).json({
-            error:err
-        })
-    })
-    })
-     
-})
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
 
-// get all courses for any user
-router.get('/all-courses',checkAuth,(req,res)=>{
-    const token = req.headers.authorization.split(" ")[1]
-    const verify = jwt.verify(token,'shi online classes 123');
+// ================= ADD COURSE =================
 
-    Course.find({uId:verify.uId})
-    .select('_id uId courseName description price startingDate endDate imageUrl imageId ')
-    .then(result=>{
-        res.status(200).json({
-            courses:result
-        })
-    })
-    .catch(err=>{
-        res.status(500).json({
-            error:err
-        })
-    })
-})
+router.post("/add-course", checkAuth, async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const verify = jwt.verify(token, "shi online classes 123");
 
-
-// get one course for any user
-router.get('/course-detail/:id',checkAuth,(req,res)=>{
-    
-
-    Course.findById(req.params.id)
-    .select('_id uId courseName description price startingDate endDate imageUrl imageId ')
-    .then(result=>{
-        Student.find({courseId:req.params.id})
-        .then(students=>{
-             res.status(200).json({
-            course:result,
-            studentList:students
-        })
-        })  
-    })
-    .catch(err=>{
-        res.status(500).json({
-            error:err
-        })
-    })
-})
-
-// delete course
-
-router.delete('/:id',checkAuth,(req,res)=>{
-    const token = req.headers.authorization.split(" ")[1]
-    const verify = jwt.verify(token,'shi online classes 123');
-
-   Course.findById(req.params.id)
-   .then(course=>{
-    console.log(course)
-    if(course.uId == verify.uId)
-    {
-        //delete
-        Course.findByIdAndDelete(req.params.id)
-        .then(result=>{
-            cloudinary.uploader.destroy(course.imageId,(deletedImage)=>{
-                Student.deleteMany({courseId:req.params.id})
-                .then(data=>{
-                    res.status(200).json({
-                    result:data
-                })
-                })
-                .catch(err=>{
-                    res.status(500).json({
-                msg:err
-            })
-                })
-            })
-        })
-        .catch(err=>{
-            res.status(500).json({
-                msg:err
-            })
-        })
+    if (!req.files || !req.files.image) {
+      return res.status(400).json({ error: "Image is required" });
     }
-    else
-    {
-        res.status(500).json({
-            msg:'bad request'
+
+    const file = req.files.image;
+
+    const uploadResult = await new Promise((resolve, reject) => {
+      cloudinary.uploader
+        .upload_stream({ folder: "courses" }, (err, result) => {
+          if (err) reject(err);
+          else resolve(result);
         })
-    }
-   })
-   .catch(err=>{
-    console.log(err)
-    res.status(500).json({
-        error:err
-    })
-   })
-})
+        .end(file.data);
+    });
 
-// update course
+    const newCourse = new Course({
+      _id: new mongoose.Types.ObjectId(),
+      courseName: req.body.courseName,
+      price: req.body.price,
+      description: req.body.description,
+      startingDate: req.body.startingDate,
+      endDate: req.body.endDate,
+      uId: verify.uId,
+      imageUrl: uploadResult.secure_url,
+      imageId: uploadResult.public_id,
+    });
 
-router.put('/:id',checkAuth,(req,res)=>{
-    const token = req.headers.authorization.split(" ")[1]
-    const verify = jwt.verify(token,'shi online classes 123');
-    console.log(verify.uId)
+    const savedCourse = await newCourse.save();
 
-    Course.findById(req.params.id)
-    .then(course=>{
-        if(verify.uId != course.uId)
-        {
-            return res.status(500).json({
-                error:'you are not eligible to update this data'
-            })
-        }
-        if(req.files)
-        {
-            cloudinary.uploader.destroy(course.imageId,(deletedImage)=>{
-                cloudinary.uploader.upload(req.files.image.tempFilePath,(err,result)=>{
-                  const newUpdatedCourse = {
-                    courseName:req.body.courseName,
-                    price:req.body.price,
-                    description:req.body.description,
-                    startingDate:req.body.startingDate,
-                    endDate:req.body.endDate,
-                    uId:verify.uId,
-                    imageUrl:result.secure_url,
-                    imageId:result.public_id
-                }
-                Course.findByIdAndUpdate(req.params.id,newUpdatedCourse,{new:true})
-                .then(data=>{
-                    res.status(200).json({
-                        updatedCourse:data
-                    })
-                })
-                .catch(err=>{
-                    console.log(err)
-                    res.status(500).json({
-                        error:err
-                    })
-                })
-                })
-            })
-        }
-        else
-        {
-            const updatedData = {
-                courseName:req.body.courseName,
-                price:req.body.price,
-                description:req.body.description,
-                startingDate:req.body.startingDate,
-                endDate:req.body.endDate,
-                uId:verify.uId,
-                imageUrl:course.imageUrl,
-                imageId:course.imageId
-            }
-            Course.findByIdAndUpdate(req.params.id,updatedData,{new:true})
-            .then(data=>{
-                res.status(200).json({
-                    updatedData:data
-                })
-            })
-            .catch(err=>{
-                console.log(err)
-                res.status(500).json({
-                    error:err
-                })
-            })
-        }
-    })
-    .catch(err=>{
-        res.status(500).json({
-            error:err
-        })
-    })
-})
+    res.status(200).json({ newCourse: savedCourse });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-// get latest 5 courses data
+// ================= ALL COURSES =================
 
-router.get('/latest-courses',checkAuth,(req,res)=>{
-  const token = req.headers.authorization.split(" ")[1];
-  const verify = jwt.verify(token, "shi online classes 123");
+router.get("/all-courses", checkAuth, async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const verify = jwt.verify(token, "shi online classes 123");
 
-  Course.find({uId:verify.uId})
-  .sort({$natural:-1}).limit(5)
-  .then(result=>{
+    const courses = await Course.find({ uId: verify.uId });
+
+    res.status(200).json({ courses });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= COURSE DETAIL =================
+
+router.get("/course-detail/:id", checkAuth, async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    const students = await Student.find({ courseId: req.params.id });
+
     res.status(200).json({
-      courses:result
-    })
-  })
-  .catch(err=>{
-    res.status(500).json({
-      error:err
-    })
-  })
+      course,
+      studentList: students,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-})
+// ================= DELETE COURSE =================
 
-//-----------home-------------------//
-router.get('/home',checkAuth,async(req,res)=>{
-    
-    try
-    {
-        const token = req.headers.authorization.split(" ")[1];
-        const verify = jwt.verify(token, "shi online classes 123");
-        const newFees = await Fee.find({uId:verify.uId}).sort({$natural:-1}).limit(5)
-        const newStudents = await Student.find({uId:verify.uId}).sort({$natural:-1}).limit(5)
-        const totalCourse = await Course.countDocuments({uId:verify.uId})
-        const totalStudent = await Student.countDocuments({uId:verify.uId})
-        const totalAmount = await Fee.aggregate([
-            {$match : {uId:verify.uId}},
-            {$group : {_id:null,total:{$sum:"$amount"}}}
-        ])
+router.delete("/:id", checkAuth, async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const verify = jwt.verify(token, "shi online classes 123");
 
-        res.status(200).json({
-            fees:newFees,
-            students:newStudents,
-            totalCourse:totalCourse,
-            totalStudent:totalStudent,
-            totalAmount:totalAmount.length>0 ? totalAmount[0].total : 0
-        })
+    const course = await Course.findById(req.params.id);
 
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" });
     }
-    catch(err)
-    {
-        res.status(500).json({
-            error:err
-        })
+
+    if (course.uId != verify.uId) {
+      return res.status(403).json({ error: "Unauthorized" });
     }
-})
+
+    await cloudinary.uploader.destroy(course.imageId);
+    await Student.deleteMany({ courseId: req.params.id });
+    await Course.findByIdAndDelete(req.params.id);
+
+    res.status(200).json({ message: "Course deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= UPDATE COURSE =================
+
+router.put("/:id", checkAuth, async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const verify = jwt.verify(token, "shi online classes 123");
+
+    const course = await Course.findById(req.params.id);
+
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+
+    if (course.uId != verify.uId) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    let imageUrl = course.imageUrl;
+    let imageId = course.imageId;
+
+    if (req.files && req.files.image) {
+      await cloudinary.uploader.destroy(course.imageId);
+
+      const file = req.files.image;
+
+      const uploadResult = await new Promise((resolve, reject) => {
+        cloudinary.uploader
+          .upload_stream({ folder: "courses" }, (err, result) => {
+            if (err) reject(err);
+            else resolve(result);
+          })
+          .end(file.data);
+      });
+
+      imageUrl = uploadResult.secure_url;
+      imageId = uploadResult.public_id;
+    }
+
+    const updatedCourse = await Course.findByIdAndUpdate(
+      req.params.id,
+      {
+        courseName: req.body.courseName,
+        price: req.body.price,
+        description: req.body.description,
+        startingDate: req.body.startingDate,
+        endDate: req.body.endDate,
+        imageUrl,
+        imageId,
+      },
+      { new: true }
+    );
+
+    res.status(200).json({ updatedCourse });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= LATEST COURSES =================
+
+router.get("/latest-courses", checkAuth, async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const verify = jwt.verify(token, "shi online classes 123");
+
+    const courses = await Course.find({ uId: verify.uId })
+      .sort({ _id: -1 })
+      .limit(5);
+
+    res.status(200).json({ courses });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================= HOME DASHBOARD =================
+
+router.get("/home", checkAuth, async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const verify = jwt.verify(token, "shi online classes 123");
+
+    const newFees = await Fee.find({ uId: verify.uId })
+      .sort({ _id: -1 })
+      .limit(5);
+
+    const newStudents = await Student.find({ uId: verify.uId })
+      .sort({ _id: -1 })
+      .limit(5);
+
+    const totalCourse = await Course.countDocuments({ uId: verify.uId });
+    const totalStudent = await Student.countDocuments({ uId: verify.uId });
+
+    const totalAmount = await Fee.aggregate([
+      { $match: { uId: verify.uId } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+
+    res.status(200).json({
+      fees: newFees,
+      students: newStudents,
+      totalCourse,
+      totalStudent,
+      totalAmount: totalAmount.length > 0 ? totalAmount[0].total : 0,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 module.exports = router;
